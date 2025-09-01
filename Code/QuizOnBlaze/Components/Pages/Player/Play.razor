@@ -1,0 +1,415 @@
+﻿@page "/play"
+@using Microsoft.AspNetCore.SignalR.Client
+@using QuizOnBlaze.Models
+@using QuizOnBlaze.Services
+@using Microsoft.AspNetCore.WebUtilities
+@inject NavigationManager NavigationManager
+@inject PlayerStateService PlayerStateService
+@inject SessionManager SessionManager
+@inject IJSRuntime JSRuntime
+
+
+<div class="play">
+
+    @if (_showLoading)
+    {
+        <!-- Show loading -->
+        <div class="text-center play-loading">
+            <div class="play-loadingspinner">
+                @for (int i = 0; i < 20; i++)
+                {
+                    <div class="play-loadingspinner-square" style="--i:@i"></div>
+                }
+            </div>
+            <h1>Get ready!</h1>
+            @if (_questionNumber > 0)
+            {
+                <p>Question @_questionNumber</p>
+            }
+        </div>
+    }
+    else if (_showQuestionOptions && _question != null && !_showHasAnswered)
+    {
+        <!-- Answer options -->
+        <div class="play-answers">
+            <div class="play-options">
+                <button class="btn btn-primary m-1 questionview-answer0" @onclick="@(() => SubmitAnswer("0"))">
+                    <span class="play-options-icon">&#9632;</span>
+                    <span class="play-options-text">@_question.Options[0]</span>
+                </button>
+                <button class="btn btn-primary m-1 questionview-answer1" @onclick="@(() => SubmitAnswer("1"))">
+                    <span class="play-options-icon">&#9679;</span>
+                    <span class="play-options-text">@_question.Options[1]</span>
+                </button>
+                <button class="btn btn-primary m-1 questionview-answer2" @onclick="@(() => SubmitAnswer("2"))">
+                    <span class="play-options-icon">&#9670;</span>
+                    <span class="play-options-text">@_question.Options[2]</span>
+                </button>
+                <button class="btn btn-primary m-1 questionview-answer3" @onclick="@(() => SubmitAnswer("3"))">
+                    <span class="play-options-icon">&#9650;</span>
+                    <span class="play-options-text">@_question.Options[3]</span>
+                </button>
+            </div>
+        </div>
+    }
+    else if (_showHasAnswered && !_showQuestionScore)
+    {
+        <!-- Player has already sent the answer -->
+        <div class="play-answered">
+            <div class="mt-5 text-center">
+                @if (_hasAnswered)
+                {
+                    <h1>You have already answered the question, you cannot answer it again. &#128513; </h1>
+                }
+                else if (_answered)
+                {
+                    <h1>Answer to question has been sent. &#128526; </h1>
+                }
+                else
+                {
+                    <h1>Time's up! You didn't respond. &#128533; </h1>
+                }
+            </div>
+        </div>
+    }
+    else if (_showQuestionScore)
+    {
+        <!-- Feedback -->
+        <div class="play-feedback">
+            <div class="feedback mt-3">
+                @if (_answerResult == true)
+                {
+                    <h1 class="text-success">Congratulations! You got it right and earned @_playerPointsEarned points.  &#128513; </h1>
+                }
+                else if (_answerResult == false)
+                {
+                    <h1 class="text-danger">What a shame! You didn't get it right this time. &#128532; </h1>
+                }
+                else
+                {
+                    <h1>Time's up! You didn't respond. &#128533; </h1>
+                }
+            </div>
+        </div>
+    }else if (_showFinalResult)
+    {
+        <!-- Final Score -->
+        <div class="play-finalscore">
+            <div>
+                <h1>Score</h1>
+                <p>You currently have <b>@_playerPointsEarned</b> points.</p>
+                @if (_playerPosition > 0)
+                {
+                   <p>You are in position <b>@_playerPosition</b> on the scoreboard.</p> 
+                }
+            </div>
+        </div>
+    }
+
+</div>
+
+
+@code {
+    private string? _playerId;
+    private string? _gamePin;
+    private string? _playerName;
+    private int? _questionNumber;
+    private bool _showLoading = true;
+    private QuestionModel _question;
+    private HubConnection? _hubConnection;   //SignalR
+
+
+    private bool _showQuestionOptions = false; // UI flag
+    private bool _showHasAnswered = false;   // UI flag
+    private bool _showQuestionScore = false; // UI flag
+    private bool _showFinalResult = false; // UI flag
+
+    private bool? _answerResult = null; // logic flag (true = correct, false = incorrect, null = no answer)
+    private bool _answered = false; // logic flag: if the answer was submitted to QuizHub
+    private bool _hasAnswered = false; // logic flag: if player has already answered the current question
+
+
+    private int _playerPointsEarned = 0;
+    private int _playerPosition = 0;
+
+    private DateTime _questionStartTime;
+
+    private IDisposable? _receiveLoadingSubscription;  // Loadin
+    private IDisposable? _receiveQuestionSubscription; // Question options
+    private IDisposable? _receiveQuestionScore;  // Question ended
+    private IDisposable? _receiveFinalScoreSubscription; // Player Score
+    private IDisposable? _receivePlayerScoreboardSubscription; // Player Score
+
+    // Pre-rendering don't use JSInterop
+    protected override Task OnInitializedAsync()
+    {
+        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+        if (QueryHelpers.ParseQuery(uri.Query).TryGetValue("pin", out var pin))
+        {
+            _gamePin = pin;
+            PlayerStateService.SessionPin = pin;
+        }
+        if (QueryHelpers.ParseQuery(uri.Query).TryGetValue("name", out var name))
+        {
+            _playerName = name;
+            PlayerStateService.Name = name;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    // Here can have JSInterop, but avoid mixing localStorage with JSInterop.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+
+        if (firstRender)
+        {
+
+            // Instead of using query string use protected storage state if it is being used
+            await PlayerStateService.LoadStateAsync();
+
+            // PlayerStateService
+            _gamePin = PlayerStateService.SessionPin;
+            _playerName = PlayerStateService.Name;
+            _playerId = PlayerStateService.Id.ToString();
+
+            // If there is no player, redirect to home ("/")
+            if (string.IsNullOrWhiteSpace(_gamePin) || string.IsNullOrWhiteSpace(_playerName))
+            {
+                NavigationManager.NavigateTo("/");
+                return;
+            }
+
+            await JSRuntime.InvokeVoidAsync("console.log", $"Game Pin:    {_gamePin ?? "null"}");
+            await JSRuntime.InvokeVoidAsync("console.log", $"Player Name: {_playerName ?? "null"}");
+            await JSRuntime.InvokeVoidAsync("console.log", $"Id: {_playerId ?? "null"}");
+
+
+            await InitializeSignalRConnectionAsync();
+        }
+
+    }
+
+    private async Task InitializeSignalRConnectionAsync()
+    {
+        //SignalR: Create connection using GaminPin from PlayerState Service
+        _hubConnection = new HubConnectionBuilder()
+           .WithUrl(NavigationManager.ToAbsoluteUri("/quizhub") + $"?gamePin={PlayerStateService.SessionPin}&playerId={PlayerStateService.Id}")
+           .WithAutomaticReconnect()
+           .WithServerTimeout(TimeSpan.FromMinutes(4)) // Timeout maior que keep-alive do servidor
+           .Build();
+
+        // handshake timeout
+        _hubConnection.HandshakeTimeout = TimeSpan.FromSeconds(30);
+
+        _receiveLoadingSubscription = _hubConnection.On<int>("Player_ReceiveLoadingWithNumber", async questionNumber =>
+        {
+            _ = InvokeAsync(() =>
+            {
+               _questionNumber = ++questionNumber;
+               ClearViews();
+               _showLoading = true;
+               _answerResult = null;
+               _answered = false;
+
+               try
+               {
+                   JSRuntime.InvokeVoidAsync("console.log", "Receive loading signal.");
+               }
+               catch (Microsoft.JSInterop.JSDisconnectedException)
+               {
+
+               }
+
+                //await InvokeAsync(() => StateHasChanged());
+                StateHasChanged();
+            });
+           
+        });
+
+
+        // SignalR: Player receives a notification to answer a question
+        _receiveQuestionSubscription = _hubConnection.On<QuestionModel>("Player_ReceiveQuestion", questionSignal =>
+        {
+            _hubConnection.SendAsync("Player_RequestCurrentState", _gamePin, _playerId);
+
+            _ = InvokeAsync(() =>
+            {
+                _question = questionSignal;
+                ClearViews();
+                _answerResult = null;
+                _playerPointsEarned = 0;
+                _questionStartTime = DateTime.UtcNow;
+                _showQuestionOptions = true;
+                // DO NOT set hasAnswered here!
+
+                JSRuntime.InvokeVoidAsync("console.log", "Receive question signal.");
+
+
+                StateHasChanged();
+
+                // Request response status to know if the player has already responded
+                _hubConnection.SendAsync("Player_RequestCurrentState", _gamePin, _playerId);
+            });
+        });
+
+
+        _receiveFinalScoreSubscription = _hubConnection.On<int>("Player_ReceiveFinalScoreIndividual", (points) =>
+        {
+            // InvokeAsync to ensure execution on the correct Dispatcher
+            _ = InvokeAsync(() =>
+            {
+                ClearViews();
+                _playerPointsEarned = points;
+                _showFinalResult = true;
+
+                PlayerStateService.Score = points;
+
+                JSRuntime.InvokeVoidAsync("console.log", "Receive final score signal.");
+
+                StateHasChanged();
+
+            });
+        });
+
+
+        _receivePlayerScoreboardSubscription = _hubConnection.On<RankingModel>("Player_ReceivePlayerScoreboardIndividual", (pscoreboard) =>
+        {
+            // InvokeAsync to ensure execution on the correct Dispatcher
+            _ = InvokeAsync(() =>
+            {
+                ClearViews();
+                _playerPointsEarned = pscoreboard.Score;
+                _playerPosition = pscoreboard.Possition;
+                _showFinalResult = true;
+
+
+
+                JSRuntime.InvokeVoidAsync("console.log", "Receive scoreboard signal.");
+
+                StateHasChanged();
+
+            });
+        });
+
+
+
+        _receiveQuestionScore = _hubConnection.On<bool?, int>("Player_ReceiveQuestionScoreIndividual", (isCorrect, points) =>
+        {
+            // InvokeAsync to ensure execution on the correct Dispatcher
+            _ = InvokeAsync(() =>
+            {
+
+                ClearViews();
+                _showQuestionScore = true;
+                _answered = true;
+                _answerResult = isCorrect; // true, false or null
+                _playerPointsEarned = points;
+
+                JSRuntime.InvokeVoidAsync("console.log", "Receive score signal.");
+
+                StateHasChanged();
+            });
+        });
+
+        // SignalR: receives data related to the current question such as answer status and score.
+        _hubConnection.On<QuestionModel, int, PlayerAnswerInfoModel>("Player_ReceiveCurrentState", (questionSignal, questionIndex, playerAnswer) =>
+        {
+            _ = InvokeAsync(() =>
+            {
+                _question = questionSignal;
+                ClearViews();
+                _answerResult = null;
+                _playerPointsEarned = 0;
+
+                // If the player has already answered this question, update flags to block duplicate answers.
+                _hasAnswered = playerAnswer != null && playerAnswer.QuestionIndex == questionIndex;
+
+                if (!_hasAnswered)
+                {
+                    _answered = false;
+                    _showHasAnswered = false;
+                    _showQuestionOptions = true;
+                }
+                else
+                {
+                    _answered = true;
+                    _showHasAnswered = true;
+                    _showQuestionOptions = false;
+                }
+                StateHasChanged();
+            });
+        });
+
+        _hubConnection.On("Player_ReceiveLoading", () =>
+        {
+            _ = InvokeAsync(() =>
+            {
+                ClearViews();
+                _showLoading = true;  
+                StateHasChanged();
+            });
+        });
+
+
+        _hubConnection.Reconnected += async (string? connectionId) =>
+        {
+            await JSRuntime.InvokeVoidAsync("console.log", "SignalR connection reconnected!");
+        };
+
+        _hubConnection.Closed += async (exception) =>
+        {
+            await JSRuntime.InvokeVoidAsync("console.error", "SignalR connection closed.");
+        };
+
+        await _hubConnection.StartAsync();
+
+        // Get the current state of the player session in the Hub.
+        await _hubConnection.SendAsync("Player_RequestCurrentState", _gamePin, _playerId);
+
+        // Update User Interface
+        StateHasChanged();
+    }
+
+
+    private async Task SubmitAnswer(string selectedOption)
+    {
+        if (_hasAnswered) return;
+
+        ClearViews();
+        _answered = true;
+
+        var timeTaken = (int)(DateTime.UtcNow - _questionStartTime).TotalSeconds;
+        if (timeTaken < 0) timeTaken = 0; // Avoid error
+
+        await _hubConnection.SendAsync("Player_SubmitAnswer", _gamePin, PlayerStateService.Id, selectedOption, timeTaken);
+
+        await InvokeAsync(StateHasChanged);
+
+        // Update User Interface
+        StateHasChanged();
+
+    }
+
+
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_receiveLoadingSubscription != null) _receiveLoadingSubscription.Dispose();
+        if (_receiveQuestionSubscription != null) _receiveQuestionSubscription.Dispose();
+        if (_receiveQuestionScore != null) _receiveQuestionScore.Dispose();
+        if (_receiveFinalScoreSubscription != null) _receiveFinalScoreSubscription.Dispose();
+        if (_receivePlayerScoreboardSubscription != null) _receivePlayerScoreboardSubscription.Dispose();
+        if (_hubConnection != null) await _hubConnection.DisposeAsync();
+    }
+
+    public void ClearViews()
+    {
+        _showLoading = false;
+        _showQuestionOptions = false;
+        _showHasAnswered = false;
+        _showQuestionScore = false;
+        _showFinalResult = false;
+    }
+}
+

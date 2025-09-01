@@ -1,0 +1,136 @@
+﻿@using Microsoft.AspNetCore.SignalR.Client
+@using QuizOnBlaze.Enum
+@using QuizOnBlaze.Models
+@using QuizOnBlaze.Services
+@using QuizOnBlaze.Utils
+@inject SessionManager SessionManager
+@inject NavigationManager NavigationManager
+@inject AvatarService AvatarService
+@inject ILogger<LobbyView> logger
+@inject AdminActionService AdminActionService
+
+
+
+
+
+@if (_CurrentSession != null)
+{
+    <div class="lobby-main shadow-lg">
+        <div>
+            <span class="lobby-url">Access the <b>https://quizonblaze.nworkit.pt</b></span>
+            <div class="lobby-pin">Game PIN: <span class="badge bg-primary">@_CurrentSession.GamePin</span></div>
+        </div>
+        <div class="lobby-qr">
+            <img class="img-fluid" src="@_QrCodeImage" alt="QR code para o quiz" />
+        </div>
+        <div class="lobby-cta">Use the code above or scan the QR.</div>
+
+        <div>
+            <p><b>Players in game:</b> <span class="loby-playerscount">@_CurrentSession.Players.Count</span></p>
+        </div>
+
+        <div class="lobby-players-list">
+            @if (_CurrentSession.Players?.Count > 0)
+            {
+                @foreach (var player in _CurrentSession.Players)
+                {
+                    <div class="lobby-player-card" key="@player.Name">
+                        <img src="@AvatarService.GetAvatarUrl(player.AvatarSeed)" class="lobby-player-avatar mb-1" alt="@player.Name" loading="lazy" />
+                        <span>@player.Name</span>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="w-100 lobby-wait">Waiting for players...</div>
+            }
+        </div>
+
+        <div class="lobby-startquiz">
+            <button class="btn btn-success lobby-start-btn" @onclick="() => AdminActionService.TriggerMenuAction(AdminAction.StartQuiz)" disabled="@(_CurrentSession.Players == null || !_CurrentSession.Players.Any())">
+
+                <i class="bi bi-play-fill"></i> Start
+            </button>
+        </div>
+        
+    </div>
+}
+
+
+
+@code {
+    private string? _QrCodeImage;
+    private string? _baseUrl;
+    private HubConnection? _hubConnection; // SIgnalR
+    private bool _firstRenderDone = false;
+    private int _lastLobbyVisitId = 0;
+
+
+    [Parameter]
+    public GameSessionModel? _CurrentSession { get; set; }
+
+    [Parameter]
+    public EventCallback _OnStart { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/quizhub"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        await _hubConnection.StartAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_CurrentSession != null && _hubConnection != null)
+        {
+            await _hubConnection.SendAsync("Admin_SendLoadingToAll", _CurrentSession.GamePin);
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+
+
+        try
+        {
+            if (_CurrentSession != null)
+            {
+                GetQRCodeImage();
+                await _hubConnection.SendAsync("Admin_SendLoadingToAll", _CurrentSession.GamePin);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError("Error in OnParametersSet: {ex.Message}", ex.Message);
+            Console.WriteLine($"Error in OnParametersSet: {ex.Message}");
+        }
+
+    }
+
+
+    private async Task HandleStart()
+    {
+        if (_OnStart.HasDelegate)
+        {
+            await _OnStart.InvokeAsync(null);
+        }
+    }
+
+    private async Task StartQuestion()
+    {
+        
+        await Task.CompletedTask;
+    }
+
+    private void GetQRCodeImage()
+    {
+        _baseUrl = NavigationManager.BaseUri;
+        var link = $"{NavigationManager.BaseUri}player?pin={_CurrentSession.GamePin}";
+
+        _QrCodeImage = QrUtil.GenerateQrCodeBase64(link);
+    }
+ 
+}

@@ -1,0 +1,19 @@
+﻿@page "/login-test"
+<h3>Login Test</h3>
+
+<input @bind="Password" type="password" placeholder="Password" />
+<button type="button" @onclick="LoginAsync" @onclick:preventDefault>Login</button>
+
+<p>@Message</p>
+
+@code {
+    private string Password = "";
+    private string Message = "";
+
+    private async Task LoginAsync()
+    {
+        Message = "Login button clicked.";
+        Console.WriteLine("LoginAsync triggered.");
+        await Task.Delay(10);
+    }
+}

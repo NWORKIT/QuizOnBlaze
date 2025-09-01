@@ -1,0 +1,90 @@
+﻿@using Microsoft.AspNetCore.SignalR.Client
+@using QuizOnBlaze.Services
+@inherits LayoutComponentBase
+@inject AvatarService AvatarService
+@inject PlayerStateService PlayerStateService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+<div class="page">
+    <main>      
+        
+
+        <!-- TOP BAR -->
+        <div class="mainlayout-topbar px-3">
+            <div class="mainlayout-topbar-left" title="@PlayerStateService.Name">
+
+                <!-- Avatar + Name -->
+                <div class="mainlayout-profile">
+                    @if (!string.IsNullOrEmpty(PlayerStateService.Name))
+                    {
+                        <img class="mainlayout-avatar" src="@AvatarService.GetAvatarUrl(PlayerStateService.AvatarSeed)" alt="Avatar" />
+                        <div class="mainlayout-player-name">@PlayerStateService.Name</div>
+                    }
+                    else
+                    {
+                        <div class="mainlayout-player-name">Player not defined</div>
+                    }
+                </div>
+
+
+                @if (!string.IsNullOrEmpty(PlayerStateService.Name))
+                {
+                    <!-- Game PIN -->  
+                    <div class="mainlayout-info-chip">
+                        <div class="mainlayout-chip-label">Game Pin</div>
+                        <div class="mainlayout-chip-value">@PlayerStateService.SessionPin</div>
+                    </div>
+
+                    <!-- Score -->
+                    <div class="mainlayout-info-chip">
+                        <div class="mainlayout-chip-label">Score</div>
+                        <div class="mainlayout-chip-value">@PlayerStateService.Score</div>
+                    </div>
+                }
+            </div>
+
+            
+            <div class="mainlayout-topbar-right">
+                    <a class="btn btn-primary me-2 no-underline" href="/">Quiz</a>
+                    <a class="btn btn-primary" href="/about">About</a>
+            </div>
+        </div>
+
+
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+
+
+@code{
+    private bool hasLoadedPlayerState = false;
+
+
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !hasLoadedPlayerState)
+        {
+            hasLoadedPlayerState = true;
+
+            await PlayerStateService.LoadStateAsync();
+
+            PlayerStateService.OnChange += StateHasChanged;
+
+            var playerId = PlayerStateService.Id;
+
+            StateHasChanged();
+        }
+    }
+
+
+    public void Dispose()
+    {
+        PlayerStateService.OnChange -= StateHasChanged;
+    }
+
+}

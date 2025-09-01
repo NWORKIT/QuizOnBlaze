@@ -1,0 +1,88 @@
+﻿@using Microsoft.AspNetCore.SignalR.Client
+@using QuizOnBlaze.Models
+@using QuizOnBlaze.Services
+@inject NavigationManager NavigationManager
+@inject SessionManager SessionManager
+
+
+<div class="scoreboard-container">
+    <div class="text-center  scoreboard-title">
+        <h1>Scoreboard</h1>
+    </div>
+
+
+    @if (_ranking == null || _ranking.Count == 0)
+    {
+        <p>Loading ranking...</p>
+    }
+    else
+    {
+        <div class="scoreboard-table">
+            <table class="table table-striped table-sm">
+                <thead>
+                    <tr>
+                        <th>Position</th>
+                        <th>Player</th>
+                        <th>Score</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var player in _ranking.OrderByDescending(p => p.Score))
+                    {
+                        <tr>
+                            <td>@(_ranking.IndexOf(player) + 1)</td>
+                            <td>@player.Name</td>
+                            <td>@player.Score</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+   
+    }
+
+</div>
+
+
+@code {
+    private HubConnection? _hubConnection;
+    private List<RankingModel> _ranking = new();
+    private string? _GamePin;
+
+    [Parameter]
+    public GameSessionModel? _CurrentSession { get; set; }
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/quizhub") + $"?gamePin={_CurrentSession.GamePin}_admin")
+            .WithAutomaticReconnect()
+            .Build();
+
+        // SignalR: Receive ranking updated in real time
+        _hubConnection.On<List<RankingModel>>("Admin_ReceiveUpdateRanking", (newRanking) =>
+        {
+            _ = InvokeAsync(() =>
+            {
+                _ranking = newRanking ?? new();
+                StateHasChanged();
+            });
+        });
+
+        await _hubConnection.StartAsync();
+
+        // Current ranking
+        _ranking = await _hubConnection.InvokeAsync<List<RankingModel>>("Admin_RequestCurrentRanking", _CurrentSession.GamePin + "_admin");
+    }
+
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _ranking = await _hubConnection.InvokeAsync<List<RankingModel>>("Admin_SendCurrentRanking", _CurrentSession.GamePin);
+    
+        StateHasChanged();
+
+        await Task.CompletedTask;
+    }
+}

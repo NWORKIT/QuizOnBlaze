@@ -1,0 +1,126 @@
+﻿@using Microsoft.AspNetCore.SignalR.Client
+@using QuizOnBlaze.Models
+@using QuizOnBlaze.Services
+@inject NavigationManager NavigationManager
+@inject SessionManager SessionManager
+@inject AvatarService AvatarService
+
+
+<div class="podium-container">
+
+    <div>
+        <button class="btn btn-primary" @onclick="LoadPodiumAsync">Update Podium</button>
+    </div>
+
+
+    <div class="text-center  scoreboard-title">
+        <h1>Podium</h1>
+    </div>
+
+
+    @if (top3 == null || top3.Count == 0)
+    {
+        <p>Loading Podium...</p>
+    }
+    else
+    {
+
+        <div class="podium-players">
+            @foreach (var player in top3.OrderBy(p => p.Score))
+            {
+                <div class="podium-block @GetPositionClass(player.Possition)">
+                    <div class="podium-avatar-wrapper">
+                        <img src="@GetAvatarUrlByPlayerID(player.PlayerID.ToString())" alt="Player avatar" class="podium-avatar" />
+                        </div>
+                    <div class="podium-bar">
+                        <div class="podium-medal">@GetMedalEmoji(player.Possition)</div>
+                        <div class="podium-name">@player.Name</div>
+                        <div class="podium-score">@player.Score</div>
+                    </div>
+                </div>
+            }
+        </div>
+
+
+    }
+
+</div>
+
+
+@code {
+    private HubConnection? hubConnection;
+    private List<RankingModel> top3 = new();
+    private string? GamePin;
+
+    [Parameter]
+    public GameSessionModel? CurrentSession { get; set; }
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/quizhub") + $"?gamePin={CurrentSession.GamePin}_admin")
+            .WithAutomaticReconnect()
+            .Build();
+
+        await hubConnection.StartAsync();
+
+    }
+
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            top3 = (await hubConnection.InvokeAsync<List<RankingModel>>("Admin_RequestCurrentRanking", CurrentSession.GamePin)).Take(3).ToList();
+
+            await Task.CompletedTask;
+        }
+    }
+
+
+
+    private async Task LoadPodiumAsync()
+    {
+        top3 = (await hubConnection
+            .InvokeAsync<List<RankingModel>>("Admin_RequestCurrentRanking", CurrentSession.GamePin))
+            .Take(3)
+            .ToList();
+
+        StateHasChanged();
+    }
+
+
+
+    private string GetMedalEmoji(int position) => position switch
+    {
+        1 => "🥇",
+        2 => "🥈",
+        3 => "🥉",
+        _ => ""
+    };
+
+
+
+    private string GetPositionClass(int position) => position switch
+    {
+        1 => "first",
+        2 => "second",
+        3 => "third",
+        _ => ""
+    };
+
+
+
+    private string GetAvatarUrlByPlayerID(string playerID)
+    {
+        var player = CurrentSession.Players.FirstOrDefault(p => p.Id.ToString() == playerID);
+
+        var avatar = AvatarService.GetAvatarUrl(player.AvatarSeed);
+
+        return avatar;
+    }
+
+
+
+}

@@ -1,0 +1,365 @@
+﻿@page "/admin"
+@layout AdminLayout
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.SignalR.Client
+@using QuizOnBlaze.Components.Layout
+@using QuizOnBlaze.Enum
+@using QuizOnBlaze.Models
+@using QuizOnBlaze.Services
+@using QuizOnBlaze.Utils
+@inject SessionManager SessionManager
+@inject NavigationManager NavigationManager
+@inject AvatarService AvatarService
+@inject AdminActionService AdminActionService
+@inject AdminStateService AdminStateService
+
+
+<div class="AdminErrorMessage">
+
+    @if (!string.IsNullOrEmpty(_ErrorMessage))
+    {
+        <p style="color:red">@_ErrorMessage</p>
+    }
+
+    @if (!string.IsNullOrEmpty(_ErrorMessage))
+    {
+        <div class="alert alert-warning">@_ErrorMessage</div>
+    }
+
+</div>
+
+<!-- UI Show all sessions-->
+@if (_CurrentSession == null || CurrentViewState == AdminViewState.Sessions)
+{
+    <h3>Admin Control Panel</h3>
+
+    <div class="scrollable-div">
+        @if (AllSessions.Any())
+        {
+            <table class="table" @key="AllSessions.Count" >
+                <thead>
+                    <tr>
+                        <th>Session ID</th>
+                        <th>Game Pin</th>
+                        <th>Current Question</th>
+                        <th>Created At (UTC)</th>
+                        <th>Last Updated (UTC)</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var session in AllSessions)
+                    {
+                        <tr @key="session.SessionId">
+                            <td>@session.SessionId</td>
+                            <td>@session.GamePin</td>
+                            <td>@(session.CurrentQuestionIndex + 1) / @session.Questions.Count</td>
+                            <td>@session.CreatedAt.ToString("g")</td>
+                            <td>@session.LastUpdatedAt.ToString("g")</td>
+                            <td>
+                                <button class="btn btn-primary btn-sm" @onclick="() => ResumeSessionASync(session.SessionId)">Resume</button>
+                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteSessionAsync(session.SessionId)">Remove</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p>No active sessions.</p>
+        }
+    </div>
+}
+else
+{
+    try
+    {
+        @switch (CurrentViewState)
+        {
+            case AdminViewState.Sessions:
+                break;
+            case AdminViewState.Lobby:
+                <LobbyView _CurrentSession="_CurrentSession" />
+                break;
+            case AdminViewState.Question:
+                <QuestionView CurrentSession="_CurrentSession" />
+                break;
+            case AdminViewState.Scoreboard:
+                <ScorebardView _CurrentSession="_CurrentSession" />
+                break;
+            case AdminViewState.Podium:
+                <PodiumView CurrentSession="_CurrentSession" />
+                break;
+            default:
+                <p>View not implemented.</p>
+                break;
+        }
+    }
+    catch (Exception ex)
+    {
+        _ErrorMessage = ex.Message;
+        Console.Error.WriteLine(ex);
+    }
+}
+
+
+
+@code {
+    private GameSessionModel? _CurrentSession;
+
+    // private List<PlayerModel> PodimPlayers = new();
+    private IReadOnlyCollection<GameSessionModel> AllSessions = Array.Empty<GameSessionModel>();
+
+    private string _ErrorMessage = string.Empty;
+
+    //Quiz
+    private QuestionModel? _currentQuestion;
+    private int _currentQuestionIndex = 0;
+    private int _totalQuestions = 0;
+    private int _timerSeconds = 0;
+    private int _answersCount = 0;
+
+
+    // User Interface
+    private AdminViewState CurrentViewState = AdminViewState.Sessions; // Default view
+    private void ShowSessions() => CurrentViewState = AdminViewState.Sessions;
+    private void ShowLobby() => CurrentViewState = AdminViewState.Lobby;
+    private void ShowQuestion() => CurrentViewState = AdminViewState.Question;
+    private void ShowScorebard() => CurrentViewState = AdminViewState.Scoreboard;
+    private void ShowPodium() => CurrentViewState = AdminViewState.Podium;
+
+    private HubConnection? _hubConnection; // SIgnalR
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Ensures loading sessions from disk
+        SessionManager.LoadAllSessions();
+
+        // Session event handler
+        SessionManager.SessionsChanged += OnSessionsChanged;
+
+        // Players event handler
+        SessionManager.PlayersChanged += OnPlayersChanged;
+
+        RefreshSessionsList();
+
+        // Admin menu event handler
+        AdminActionService.OnMenuAction += HandleMenuAction;
+
+        // Update UI when receiving notifications from services
+        StateHasChanged(); 
+
+        await Task.CompletedTask;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await Task.CompletedTask;
+    }
+
+
+    public async Task OnSessionSelected(GameSessionModel selectedSession)
+    {
+        _CurrentSession = selectedSession;
+
+        // Create and initialize the SignalR connection for the admin group of this session
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/quizhub") + $"?gamePin={_CurrentSession.GamePin}_admin")
+            .WithAutomaticReconnect()
+            .Build();
+
+        await _hubConnection.StartAsync();
+
+        AdminStateService.SetCurrentSession(_CurrentSession);
+    }
+
+
+
+    // Admin Menu interaction
+    private async Task HandleMenuAction(AdminAction action)
+    {
+        switch (action)
+        {
+            case AdminAction.ShowSessions:
+                _CurrentSession = null;
+                AdminStateService.SetCurrentSession(_CurrentSession); //For AdminLayout
+                CurrentViewState = AdminViewState.Sessions;
+                break;
+            case AdminAction.CreateNewSession:
+                await CreateNewSession();
+                CurrentViewState = AdminViewState.Sessions;
+                break;
+            case AdminAction.ShowLobby:
+                OnSessionSelected(_CurrentSession);
+                AdminStateService.SetCurrentSession(_CurrentSession); //For AdminLayout
+                CurrentViewState = AdminViewState.Lobby;
+                break;
+            case AdminAction.StartQuiz:
+                CurrentViewState = AdminViewState.Question;
+                break;
+            case AdminAction.FirstQuestion:
+                if (_hubConnection != null && _CurrentSession != null)
+                {
+                    await _hubConnection.SendAsync("Admin_NavigateToQuestion", _CurrentSession.GamePin, 0);
+                    _CurrentSession.CurrentQuestionIndex = 0;
+                    CurrentViewState = AdminViewState.Question;
+                }
+                break;
+            case AdminAction.PreviousQuestion:
+                if (_hubConnection != null && _CurrentSession != null)
+                {
+                    await _hubConnection.SendAsync("Admin_NavigateToQuestion", _CurrentSession.GamePin, _CurrentSession.CurrentQuestionIndex - 1);
+                    _CurrentSession.CurrentQuestionIndex--;
+                    CurrentViewState = AdminViewState.Question;
+                }
+                break;
+            case AdminAction.NextQuestion:
+                if (_hubConnection != null && _CurrentSession != null)
+                {
+                    await _hubConnection.SendAsync("Admin_NavigateToQuestion", _CurrentSession.GamePin, _CurrentSession.CurrentQuestionIndex + 1);
+                    _CurrentSession.CurrentQuestionIndex++;
+                    CurrentViewState = AdminViewState.Question;
+                }
+                break;
+            case AdminAction.ShowScoreboard:
+                CurrentViewState = AdminViewState.Scoreboard;
+                break;
+            case AdminAction.ShowPodium:
+                CurrentViewState = AdminViewState.Podium;
+                break;
+        }
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task CreateNewSession()
+    {
+        try
+        {
+            // Load questions
+            var questions = await LoadQuestionsAsync();
+
+            _CurrentSession = SessionManager.CreateSession(questions);
+
+            // Update the list (include the new one)
+            AllSessions = SessionManager.GetAllSessions();
+
+            StateHasChanged(); // Update UI
+
+        }
+        catch (FileNotFoundException ex)
+        {
+            _ErrorMessage = $"The file with the questions does not exist: {ex.FileName}";
+        }
+    }
+
+    /// <summary>
+    /// Question loading logic from JSON path or hardcoded
+    /// </summary>
+    /// <returns>List questions</returns>
+    private async Task<List<QuestionModel>> LoadQuestionsAsync()
+    {
+        // Custom environment variable
+        //var questionsPath = Environment.GetEnvironmentVariable("QUESTIONS_PATH");
+        //var basePath = !string.IsNullOrEmpty(questionsPath) ? questionsPath : (Environment.GetEnvironmentVariable("HOME") ?? Directory.GetCurrentDirectory());
+
+        // Get the base directory depending on the environment
+        var basePath = Environment.GetEnvironmentVariable("HOME") ?? Directory.GetCurrentDirectory();
+
+        // Mounts the path of the questions.json file
+        var questionsFilePath = Path.Combine(basePath, "data", "questions.json");
+
+        // Ensures the folder exists
+        var dataDirectory = Path.GetDirectoryName(questionsFilePath);
+        if (!Directory.Exists(dataDirectory))
+        {
+            Directory.CreateDirectory(dataDirectory);
+        }
+
+        return await SessionManager.LoadQuestionsFromFileAsync(questionsFilePath);
+    }
+
+    private async Task ResumeSessionASync(string sessionId)
+    {
+        _CurrentSession = SessionManager.GetSession(sessionId);
+        AdminStateService.SetCurrentSession(_CurrentSession); //For AdminLayout
+        OnSessionSelected(_CurrentSession);
+        ShowLobby();
+        await Task.CompletedTask;
+    }
+
+    private async Task DeleteSessionAsync(string sessionId)
+    {
+        if (SessionManager.RemoveSession(sessionId))
+        {
+            if (_CurrentSession != null && _CurrentSession.SessionId == sessionId)
+            {
+                _CurrentSession = null;
+            }
+            RefreshSessionsList(); // Update the list to reflect the removal
+            StateHasChanged();  // Force UI refresh
+        }
+        await Task.CompletedTask;
+    }
+
+    private void RefreshSessionsList()
+    {
+        // Avoids duplicates and ensures current and up-to-date list
+        AllSessions = SessionManager.GetAllSessions()
+            .GroupBy(s => s.SessionId)   // groups by SessionId
+            .Select(g => g.First())      // take only one from each group
+            .OrderByDescending(s => s.CreatedAt) // sort by date/time
+            .ToList()
+            .AsReadOnly();
+    }
+
+
+    private void UpdateCurrentSession()
+    {
+        if (_CurrentSession != null)
+        {
+
+            // Refresh the current session to get the updates
+            var updatedSession = SessionManager.GetSession(_CurrentSession.SessionId);
+            if (updatedSession != null)
+            {
+                _CurrentSession = new GameSessionModel
+                {
+                    SessionId = updatedSession.SessionId,
+                    GamePin = updatedSession.GamePin,
+                    Questions = updatedSession.Questions,
+                    CurrentQuestionIndex = updatedSession.CurrentQuestionIndex,
+                    Players = updatedSession.Players?.ToList() ?? new List<PlayerModel>(),
+                    CreatedAt = updatedSession.CreatedAt,
+                    LastUpdatedAt = updatedSession.LastUpdatedAt
+                };
+            }
+        }
+    }
+
+    // Notify changes to the component from Session Manager
+    private void OnSessionsChanged()
+    {
+        RefreshSessionsList(); // Update the list of sessions
+        UpdateCurrentSession();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnPlayersChanged()
+    {
+        UpdateCurrentSession();
+        InvokeAsync(StateHasChanged);
+    }
+
+    // Dispose Events
+    public void Dispose()
+    {
+        SessionManager.SessionsChanged -= OnSessionsChanged;
+        SessionManager.PlayersChanged -= OnPlayersChanged;
+        AdminActionService.OnMenuAction -= HandleMenuAction;
+    }
+
+}

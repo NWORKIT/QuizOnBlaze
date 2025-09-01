@@ -1,0 +1,20 @@
+[
+  {
+    "QuestionText": "What is the capital of Portugal?",
+    "QuestionImage": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Portugal_location_map.svg/250px-Portugal_location_map.svg.png",
+    "QuestionOptions": [ "Lisboa", "Porto", "Faro", "Braga" ],
+    "QuestionCorrectAnswer": 0
+  },
+  {
+    "QuestionText": "What is 5 x 5?",
+    "QuestionImage": "https://estudoemcasaapoia.dge.mec.pt/sites/default/files/h5p/content/793/images/file-629f47ddba9be.jpg",
+    "QuestionOptions": [ "30", "11", "56", "25" ],
+    "QuestionCorrectAnswer": 3
+  },
+  {
+    "QuestionText": "Who wrote 'The Lusiads'?",
+    "QuestionImage": "https://upload.wikimedia.org/wikipedia/commons/0/0d/Os_Lus%C3%ADadas.jpg",
+    "QuestionOptions": [ "Pessoa", "Camões", "Saramago", "Eça de Queirós" ],
+    "QuestionCorrectAnswer": 1
+  }
+]

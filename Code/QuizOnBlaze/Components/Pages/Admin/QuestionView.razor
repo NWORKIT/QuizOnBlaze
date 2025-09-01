@@ -1,0 +1,432 @@
+﻿@using Microsoft.AspNetCore.SignalR.Client
+@using QuizOnBlaze.Enum
+@using QuizOnBlaze.Models
+@using QuizOnBlaze.Services
+@using QuizOnBlaze.Utils
+@inject SessionManager SessionManager
+@inject NavigationManager NavigationManager
+@inject ILogger<QuestionView> logger
+@inject AdminActionService AdminActionService
+@inject AdminStateService AdminStateService
+
+<div class="question-area position-relative">
+    @if (CurrentSession == null || CurrentSession.Questions.Count == 0)
+    {
+        <p>Loading...</p>
+    }
+    else
+    {
+        @if (_showSimpleQuestion)
+        {
+            <div class="d-flex flex-row-reverse ">
+                <button class="btn btn-warning questionview-skipdetailedquestion" @onclick="SkipDetailedQuestion">Skip</button>
+            </div>
+           
+            <div class="text-center questionpreview-qtext">
+                @_currentQuestion.Text
+            </div>
+            <div class="text-center mt-2 questionpreview-qimage">
+                @if (!string.IsNullOrEmpty(_currentQuestion.ImageUrl))
+                {
+                    <img src="@_currentQuestion.ImageUrl" class="img-fluid mt-3" alt="Image of the question" />
+                }
+            </div>
+            <div class="text-center mt-4 questionpreview-qtimer">
+                <p class="display-1">@_timeLeft</p>
+            </div>
+     
+        }
+        else if (_showDetailedQuestion)
+        {
+            <div>
+                <div class="overflow-auto text-center questionview-qtext">
+                    @_currentQuestion.Text
+                </div>
+
+
+                <div class="row my-3 justify-content-center align-items-center">
+                    <div class="col-4 col-md-4 text-center ">
+                        <h5>Time remaining</h5>
+                        <p class="display-1">@_timeLeft</p>
+                        <small>seconds</small>
+                    </div>
+                    <div class="col-4 col-md-4  border-start border-2 border-end border-2 questionview-qimage ">
+                        @if (!string.IsNullOrEmpty(_currentQuestion.ImageUrl))
+                        {
+                            <img src="@_currentQuestion.ImageUrl" class="img-fluid" alt="Image of the question" />
+                        }
+                    </div>
+                    <div class="col-4 col-md-4 text-center ">
+                        <h5>Responses received</h5>
+                        <p class="display-4">@_answersCount</p>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-lg-5">
+                    <div class="col-6 questionview-answer questionview-answer0">
+                        <small>&#9632;</small> @_currentQuestion.Options[0]
+                    </div>
+                    <div class="col-6 questionview-answer questionview-answer1">
+                        <small>&#9679;</small> @_currentQuestion.Options[1]
+                    </div>
+                    <div class="col-6 questionview-answer questionview-answer2">
+                        <small>&#9670;</small> @_currentQuestion.Options[2]
+                    </div>
+                    <div class="col-6 questionview-answer questionview-answer3">
+                        <small>&#9650;</small> @_currentQuestion.Options[3]
+                    </div> 
+                </div>
+            </div>
+        }
+        else if (_showQuestionResults)
+        {
+            @if (_currentQuestion != null)
+            {
+                <div>
+
+                    <div class="d-flex flex-row-reverse ">
+                        <button class="btn btn-warning questionview-showcoreboard" @onclick="() => AdminActionService.TriggerMenuAction(AdminAction.ShowScoreboard)">Scoreboard</button>
+                    </div>
+
+                    <div class="overflow-auto text-center questionview-qtext">
+                        @_currentQuestion.Text
+                    </div>
+
+                    <!-- result chart -->
+                    <div class="row my-3 justify-content-center align-items-center">
+                        @for (int i = 0; i < _currentQuestion.Options.Count; i++)
+                        {
+                            var count = _optionAnswerCounts.ContainsKey(i) ? _optionAnswerCounts[i] : 0;
+                            var isCorrect = (i == _currentQuestion.CorrectOptionIndex);
+
+                            <div class="col-12 mb-2">
+                                <div class="d-flex align-items-center">
+                                    <!-- option and icon -->
+                                    <span class="me-2 questionresults-optionlabel">
+                                        @_currentQuestion.Options[i] @((MarkupString)(isCorrect ? " &#10004; " : " &#10006; "))
+                                    </span>
+
+                                    <!-- Results bar -->
+                                    <div class="position-relative flex-grow-1 questionresults-resultsbar">
+                                        <div style="width:@(count * 20)px; background:@(isCorrect ? "green" : "red"); height:20px;">
+                                        </div>
+                                    </div>
+
+                                    <!-- count -->
+                                    <span class="ms-2">@count answers</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+
+
+                    <div class="row g-3 mb-lg-5">
+                    
+                        <div class="col-6 questionview-answer questionview-answer0">
+                            <small>&#128917;</small> @_currentQuestion.Options[0]  @((MarkupString)(_currentQuestion.CorrectOptionIndex == 0 ? " &#10004; " : " &#10006; "))
+                        </div>
+
+                        <div class="col-6 questionview-answer questionview-answer1">
+                            <small>&#9673;</small> @_currentQuestion.Options[1]  @((MarkupString)(_currentQuestion.CorrectOptionIndex == 1 ? " &#10004; " : " &#10006; "))
+                        </div>
+
+                        <div class="col-6 questionview-answer questionview-answer2">
+                            <small>&#128923;</small> @_currentQuestion.Options[2]  @((MarkupString)(_currentQuestion.CorrectOptionIndex == 2 ? " &#10004; " : " &#10006; "))
+                        </div>
+
+                        <div class="col-6 questionview-answer questionview-answer3">
+                            <small>&#9708;</small> @_currentQuestion.Options[3]  @((MarkupString)(_currentQuestion.CorrectOptionIndex == 3 ? " &#10004; " : " &#10006; "))
+                        </div>
+
+                    </div>
+                </div>
+            }
+        }
+
+        <div class="questionview-info-bar">
+            <div class="ps-4"> Question @(CurrentSession.CurrentQuestionIndex + 1) of @CurrentSession.Questions.Count </div>
+            <div class="pe-4">Game PIN: @CurrentSession.GamePin</div>
+        </div>
+    }
+ </div>
+
+@code {
+
+    [Parameter]
+    public GameSessionModel? CurrentSession { get; set; }
+
+    // Question Data
+    private QuestionModel _currentQuestion => CurrentSession!.Questions[CurrentSession.CurrentQuestionIndex];
+
+    private bool _showSimpleQuestion = false;
+    private bool _showDetailedQuestion = false;
+    private bool _showQuestionResults = false;
+
+    private int _timeLeft = 0;
+
+    private int _answersCount = 0; 
+
+    // For skip button
+    private CancellationTokenSource? _timerCancellation;
+    private bool _isRunning = false;
+
+    private HubConnection? _hubConnection; //SignalR
+
+    private Dictionary<int, int> _optionAnswerCounts = new();
+    private int _correctOptionIndex = -1;
+
+    private int _lastQuestionIndex = -1;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        // SignalR for admin
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/quizhub") + $"?gamePin={CurrentSession.GamePin}_admin")
+            .WithAutomaticReconnect()
+            .WithServerTimeout(TimeSpan.FromMinutes(4)) // Timeout maior que keep-alive do servidor
+            .Build();
+
+        // handshake timeout
+        _hubConnection.HandshakeTimeout = TimeSpan.FromSeconds(30);
+
+        _hubConnection.Reconnecting += async (Exception? ex) =>
+        {
+            logger.LogWarning("SignalR is reconnecting.");
+        };
+
+        _hubConnection.Reconnected += async (string? connectionId) =>
+        {
+            // resynchronize state, update timers, etc.
+            logger.LogInformation("SignalR reconnected with Id: {ConnectionId}", connectionId);
+        };
+
+        _hubConnection.Closed += async (Exception? ex) =>
+        {
+            logger.LogError("SignalR connection closed.");
+        };
+
+        // SignalR UpdateAnswerCount
+        _hubConnection.On<int>("Admin_UpdateAnswerCount", count =>
+        {
+            // InvokeAsync to ensure execution on the correct Dispatcher
+            _ = InvokeAsync(() =>
+            {
+                _answersCount = count;
+                StateHasChanged();
+            });
+        });
+
+        // SignalR: receive the counts and the correct option from the question.
+        _hubConnection.On<Dictionary<int, int>, int>("Admin_ReceiveQuestionResults", (counts, correctIdx) =>
+        {
+            // InvokeAsync to ensure execution on the correct Dispatcher
+            _ = InvokeAsync(() =>
+            {
+                _optionAnswerCounts = counts ?? new();
+                _correctOptionIndex = correctIdx;
+                StateHasChanged();
+            });
+        });
+
+        await _hubConnection.StartAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (CurrentSession == null || _isRunning) return;
+
+        var idx = CurrentSession.CurrentQuestionIndex;
+
+        if (idx < 0 || idx >= CurrentSession.Questions.Count)
+            return; // Avoid index out of range
+
+        // Do nothing if still same question
+        if (CurrentSession.CurrentQuestionIndex == _lastQuestionIndex)
+            return; // Only processes if question changes
+
+        // Save index and clear old timers
+        _isRunning = false;
+        _lastQuestionIndex = CurrentSession.CurrentQuestionIndex;
+
+        // Cancel all running timers and reset
+        _timerCancellation?.Cancel();
+        _timerCancellation = new CancellationTokenSource();
+
+        _isRunning = false;
+        _showSimpleQuestion = false;
+        _showDetailedQuestion = false;
+        _showQuestionResults = false;
+        StateHasChanged();
+
+        // Start the question cycle
+        await StartCycleQuestion();
+
+    }
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (CurrentSession != null && CurrentSession.CurrentQuestionIndex != _lastQuestionIndex)
+        {
+            _lastQuestionIndex = CurrentSession.CurrentQuestionIndex;
+            StartCycleQuestion();
+        }
+        return Task.CompletedTask;
+    }
+
+
+
+    private async Task StartCycleQuestion()
+    {
+        _isRunning = true;
+
+        // Cancel any previous timer
+        var token = await CancelAllCountdownTimersAsync();
+
+
+        // Question State 1: show simple for 5 sec
+        await QuestionState1(token);
+        if (token.IsCancellationRequested) return;
+
+        // Question State 2: details + 15 sec timer and response count
+        await QuestionState2(token);
+        if (token.IsCancellationRequested) return;
+
+        // After the timer ends, inform that the current question has finished and show the results.
+        await ViewQuestionResults();
+
+        _isRunning = false;
+    }
+
+    private async void SkipDetailedQuestion()
+    {
+        if (!_showSimpleQuestion) return;
+
+        await NotifyNewQuestion();
+
+        // Cancel any previous timer
+        var token = await CancelAllCountdownTimersAsync();
+
+        // Question State 2: details + 15 sec timer and response count
+        await QuestionState2(token);
+        if (token.IsCancellationRequested) return;
+
+        // After the timer ends, inform that the current question has finished and show the results.
+        await ViewQuestionResults();
+
+        _isRunning = false;
+    }
+
+
+    // Question State 1: show simple for 5 sec (ShowSimpleQuestion)
+    private async Task QuestionState1(CancellationToken token)
+    {
+        // Show loading to player
+        await NotifyQuestionLoading();
+
+        _showSimpleQuestion = true;
+        _showDetailedQuestion = false;
+        _showQuestionResults = false;
+        _timeLeft = 5;
+        StateHasChanged();
+
+        await ShowCountdownTimer(_timeLeft, token);   
+
+        // When this state is finished, notify state 2
+        if (!token.IsCancellationRequested)
+        {
+            await NotifyNewQuestion();
+        }
+    }
+
+    // Question State 2: details + 15 sec timer and response count (howDetailedQuestion)
+    private async Task QuestionState2(CancellationToken token)
+    {
+        _answersCount = await _hubConnection.InvokeAsync<int>("Admin_RequestCurrentAnswerCount", CurrentSession.GamePin, CurrentSession.CurrentQuestionIndex);
+
+        // Show question options to player
+        await NotifyNewQuestion();
+
+        _showSimpleQuestion = false;
+        _showDetailedQuestion = true;
+        _showQuestionResults = false;
+        _timeLeft = 15;
+        StateHasChanged();
+
+        await ShowCountdownTimer(_timeLeft, token);
+    }
+
+    
+    // Show Countdown timer
+    private async Task ShowCountdownTimer(int initialTime, CancellationToken token)
+    {
+        for (int i = initialTime; i >= 0; i--)
+        {
+
+            if (token.IsCancellationRequested) break; // Stop the loop using the skip button
+
+            _timeLeft = i;
+            StateHasChanged();
+            await Task.Delay(1000);
+        }
+    }
+
+    // Cancel any previous timer
+    private async Task<CancellationToken> CancelAllCountdownTimersAsync()
+    {
+        await Task.Yield(); // Wait for canceled tasks to finish.
+        await Task.Delay(10); // This delay will ensure that the token is respected.
+        _timerCancellation?.Cancel();
+        _timerCancellation = new CancellationTokenSource();
+        return _timerCancellation.Token;
+    }
+
+
+    // SignalR: Notify Question Loading for the player
+    private async Task NotifyQuestionLoading()
+    {
+        if (_hubConnection is not null)
+        {
+            await _hubConnection.SendAsync("Admin_SendLoadingWithNumber", CurrentSession.GamePin, CurrentSession.CurrentQuestionIndex);
+        }
+    }
+
+
+    // SignalR: Notify new question for the player
+    private async Task NotifyNewQuestion()
+    {
+        if (_hubConnection is not null)
+        {
+            await _hubConnection.SendAsync("Admin_SendCurrentQuestion", CurrentSession.GamePin, _currentQuestion);
+        
+            
+            AdminStateService.SetCurrentSession(CurrentSession);
+        
+        }
+    }
+
+    // The question display has ended
+    private async Task ViewQuestionResults()
+    {
+        
+        _showSimpleQuestion = false;
+        _showDetailedQuestion = false;
+        _showQuestionResults = true;
+
+      
+        // After submitting the results
+        CurrentSession.IsQuestionActive = false;
+        SessionManager.SaveSession(CurrentSession);
+
+
+        // Defines players who did not respond
+        await _hubConnection.SendAsync("Admin_SendQuestionEnded", CurrentSession.GamePin);
+        
+        // Send question results
+        await _hubConnection.SendAsync("Admin_SendQuestionResults", CurrentSession.GamePin);
+
+
+        StateHasChanged();
+    }
+}

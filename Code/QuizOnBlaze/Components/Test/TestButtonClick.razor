@@ -1,0 +1,15 @@
+﻿@page "/test-click"
+<h3>Click test</h3>
+
+<button type="button" @onclick="TestClick">Click me</button>
+
+<p>@message</p>
+
+@code {
+    private string message = "";
+
+    private void TestClick()
+    {
+        message = "Button clicked!";
+    }
+}

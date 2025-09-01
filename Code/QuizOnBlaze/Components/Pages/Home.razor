@@ -1,0 +1,86 @@
+﻿@page "/"
+@using QuizOnBlaze.Services
+@inject QuizOnBlaze.Services.SessionManager SessionManager
+@inject IJSRuntime JSRuntime
+@inject PlayerStateService PlayerStateService
+@inject NavigationManager NavigationManager
+
+
+
+<div class="text-center mt-5 GamePin">
+    <h1>QuizOnBlaze</h1>
+    <div class="text-center mt-2">
+        @if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <p style="color:red">@ErrorMessage</p>
+        }
+    </div>
+    <div class="d-block mx-auto mb-2">
+        <input @bind="GamePin" maxlength="6" placeholder="Enter Game PIN" />
+    </div>
+    <div class="mt-2">
+        <button type="button" class="btn btn-primary" @onclick ="SubmitPin">Enter</button>
+    </div>
+   
+</div>
+
+
+
+@code {
+    private string GamePin = "";
+    private string ErrorMessage = "";
+
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        
+
+        if (firstRender)
+        {
+            await PlayerStateService.LoadStateAsync();
+
+            await JSRuntime.InvokeVoidAsync("console.log", $"Game Pin:    {PlayerStateService.SessionPin ?? "null"}");
+            await JSRuntime.InvokeVoidAsync("console.log", $"Player Name: {PlayerStateService.Name ?? "null"}");
+
+            if (!string.IsNullOrWhiteSpace(PlayerStateService.SessionPin) &&
+                !string.IsNullOrWhiteSpace(PlayerStateService.Name))
+            { 
+                NavigationManager.NavigateTo($"/play?pin={PlayerStateService.SessionPin}&name={PlayerStateService.Name}");
+            }
+        }
+    }
+
+    private void SubmitPin()
+    {
+        if (string.IsNullOrWhiteSpace(GamePin))
+        {
+            ErrorMessage = "Please enter a valid Game PIN.";
+            return;
+        }
+
+        if (GamePin.Length != 5)
+        {
+            ErrorMessage = "The Game PIN consists of five digits.";
+            return;
+        }
+
+        if(!GamePin.All(char.IsDigit))
+        {
+            ErrorMessage = "The Game PIN must contain only numbers.";
+            return;
+        }
+
+        // Checks in SessionManager if session exists
+        var session = SessionManager.GetSessionByPin(GamePin.Trim());
+
+        if (session == null)
+        {
+            // PIN not found, reports error and does not redirect
+            ErrorMessage = "Game PIN not found. Please enter a valid code.";
+            return;
+        }
+
+        // Redirects to player input sending GamePin via parameter
+        NavigationManager.NavigateTo($"/player?pin={GamePin.Trim()}");
+    }
+}

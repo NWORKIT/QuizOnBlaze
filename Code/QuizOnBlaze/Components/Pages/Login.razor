@@ -1,0 +1,25 @@
+﻿@page "/login"
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@using static QuizOnBlaze.DTOs.LoginDTO
+
+
+<div class="text-center">
+
+    <h3>Admin Login</h3>
+
+
+    @if (Navigation.Uri.Contains("error=1"))
+    {
+        <p style="color:red">"Incorrect password"</p>
+    }
+    <form method="post" action="/api/auth/login">
+        <input type="password" name="Password" />
+        <button type="submit">Login</button>
+    </form>
+
+</div>
+
+@code {
+
+}

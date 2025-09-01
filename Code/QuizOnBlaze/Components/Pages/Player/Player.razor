@@ -1,0 +1,153 @@
+﻿@page "/player/{GamePin?}"
+@using Microsoft.AspNetCore.WebUtilities
+@using QuizOnBlaze.Models
+@using QuizOnBlaze.Services
+@using System.Text.RegularExpressions
+@inject SessionManager SessionManager
+@inject NavigationManager NavigationManager
+@inject AvatarService AvatarService
+@inject PlayerStateService PlayerStateService
+@inject ForbiddenWordsService ForbiddenWordsService
+
+
+<h3>Enter your Name and Choose Avatar</h3>
+
+@if (!string.IsNullOrEmpty(ErrorMessage))
+{
+    <div style="color:red">@ErrorMessage</div>
+}
+
+@if (IsLoading)
+{
+    <p>Loading session...</p>
+}
+else if (!SessionExists)
+{ 
+    <p>Game PIN not found. <button @onclick="@(() => NavigationManager.NavigateTo("/"))">Back to home</button></p>
+    
+}
+else
+{
+
+
+<p>Game PIN: @GamePin</p>
+
+<div>
+    <label>Name:</label>
+    <input @bind="PlayerName" maxlength="20" />
+</div>
+
+<div>
+    <img src="@AvatarUrl" alt="Player Avatar" width="80" height="80" />
+</div>
+
+<button @onclick="JoinGame">Join Game</button>
+
+}
+
+@code {
+    [Parameter]
+    public string? GamePin { get; set; }
+
+    private bool IsLoading = true;
+    private bool SessionExists = false;
+
+    private string PlayerName = "";
+    private string SelectedAvatarSeed;
+    private string ErrorMessage = "";
+
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        // Simulates loading
+        await Task.Delay(100); 
+
+        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+        if (QueryHelpers.ParseQuery(uri.Query).TryGetValue("pin", out var pin))
+        {
+            GamePin = pin;
+        }
+
+        SelectedAvatarSeed = AvatarService.GenerateRandomSeed();
+
+        SessionExists = !string.IsNullOrEmpty(GamePin) && SessionManager.GetSessionByPin(GamePin) != null;
+
+        IsLoading = false;
+
+        // Valida GamePin: se não existir sessão, redireciona
+        if (!SessionExists)
+        {
+            // True will force reload
+            NavigationManager.NavigateTo("/", true);
+        }
+    }
+
+    private string AvatarUrl => AvatarService.GetAvatarUrl(SelectedAvatarSeed);
+
+
+    private async Task JoinGame()
+    {
+        ErrorMessage = "";
+
+        if (string.IsNullOrWhiteSpace(PlayerName))
+        {
+            ErrorMessage = "Please enter your name.";
+            return;
+        }
+
+        //Check for gorbidden names
+        if (!ForbiddenWordsService.IsNameAllowed(PlayerName))
+        {
+            ErrorMessage = "This name contains prohibited name.";
+            return;
+        }
+
+        var session = SessionManager.GetSessionByPin(GamePin);
+
+        if (session == null)
+        {
+            ErrorMessage = "Invalid Game PIN.";
+            return;
+        }
+
+        // Avoid duplicate names in the same session
+        if (session.Players.Any(p => p.Name.Equals(PlayerName, StringComparison.OrdinalIgnoreCase)))
+        {
+            ErrorMessage = "This name is already taken in the game.";
+            return;
+        }
+
+        // Add player to session
+        var newPlayer = new PlayerModel
+        {
+            Id = Guid.NewGuid(),
+            Name = PlayerName.Trim(),
+            AvatarSeed = SelectedAvatarSeed,
+            Score = 0,
+            IsActive = true
+        };
+
+        // Add player to session
+        SessionManager.AddPlayerToSession(GamePin!, newPlayer);
+
+        // Updates PlayerStateService to maintain player state
+        PlayerStateService.Id = newPlayer.Id;
+        PlayerStateService.Name = newPlayer.Name;
+        PlayerStateService.SessionPin = GamePin!;
+        PlayerStateService.AvatarSeed = newPlayer.AvatarSeed;
+        await PlayerStateService.SaveStateAsync();
+
+
+        // Redirect to the quiz page passing name and GamePin in the query string
+        NavigationManager.NavigateTo($"/play?pin={GamePin}&name={PlayerName}");
+       
+    }
+
+    // Generate a random seed to create avatar
+    private string GenerateRandomSeed()
+    {
+        var rnd = new Random();
+        return rnd.Next(100000, 999999).ToString();
+    }
+}

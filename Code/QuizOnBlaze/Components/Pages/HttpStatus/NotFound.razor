@@ -1,0 +1,15 @@
+﻿@page "/{**catchAll}"
+
+<h3>Page not found (404)</h3>
+
+<p>Sorry, the page '@CatchAll' you tried to access does not exist.</p>
+
+<a href="/">Return to home page</a>
+
+@code {
+
+    // .NET 9 to Blazor don't support <NotFoud> source: https://learn.microsoft.com/en-us/aspnet/core/blazor/fundamentals/routing?view=aspnetcore-9.0
+
+    [Parameter]
+    public string? CatchAll { get; set; }
+}

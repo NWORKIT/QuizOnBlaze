@@ -1,0 +1,106 @@
+﻿@using QuizOnBlaze.Enum
+@using QuizOnBlaze.Models
+@using QuizOnBlaze.Services
+@inherits LayoutComponentBase
+@inject AdminActionService AdminMenuService
+@inject AdminStateService AdminStateService
+
+<div class="page">
+    <main>
+        <div class="top-row px-4 py-2 bg-light d-flex align-items-center justify-content-between">
+
+            <div>
+                <a href="/about" class="btn btn-success me-2">About</a>
+
+                <button class="btn btn-outline-primary me-2" @onclick="() => AdminMenuService.TriggerMenuAction(AdminAction.ShowSessions)">Sessions</button>
+
+                <button class="btn btn-outline-primary me-2" @onclick="() => AdminMenuService.TriggerMenuAction(AdminAction.CreateNewSession)">Create New Game Session</button>
+
+                @if (AdminStateService.CurrentSession != null)
+                {
+                    <button class="btn btn-primary me-2" @onclick="() => AdminMenuService.TriggerMenuAction(AdminAction.ShowLobby)">Lobby</button>
+
+                    <button class="btn btn btn-info me-2" @onclick="() => AdminMenuService.TriggerMenuAction(AdminAction.FirstQuestion)"> &#x25B6; </button>
+
+                    <button class="btn btn btn-info me-2" @onclick="() => AdminMenuService.TriggerMenuAction(AdminAction.PreviousQuestion)" disabled="@(IsFirstQuestion )"> &#9198;</button>
+
+                    <button class="btn btn btn-info me-2" @onclick="() => AdminMenuService.TriggerMenuAction(AdminAction.NextQuestion)" disabled="@(IsLastQuestion )"> &#9197; </button>
+
+                    <button class="btn btn-primary me-2" @onclick="() => AdminMenuService.TriggerMenuAction(AdminAction.ShowScoreboard)"> Scoreboard</button>
+
+                    <button class="btn btn-warning me-2" @onclick="() => AdminMenuService.TriggerMenuAction(AdminAction.ShowPodium)"> &#127942; </button>
+                    
+                }
+            </div>
+
+            <div>
+                <form method="post" action="/api/auth/logout">
+                    <button type="submit" class="btn btn-outline-danger btn-sm">Logout</button>
+                </form>
+            </div>
+        </div>
+
+        <article class="content px-4">
+            <ErrorBoundary>
+                <ChildContent>
+                    @Body
+                </ChildContent>
+                <ErrorContent>
+                    <p class="text-danger">An error occurred: @context.Message</p>
+                    <pre>@context.StackTrace</pre>
+                </ErrorContent>
+            </ErrorBoundary>
+        </article>
+
+    </main>
+</div>
+
+
+
+
+
+
+@code {
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+    
+    [Parameter] 
+    public bool AnswerVisible { get; set; }
+
+    // Using Enum + OnMenuClick
+    [Parameter] 
+    public EventCallback<AdminAction> MenuClicked { get; set; }
+
+    protected override void OnInitialized()
+    {
+        AdminStateService.OnChange += StateHasChanged;
+    }
+
+    private async Task OnMenuClick(AdminAction action)
+    {
+        if (MenuClicked.HasDelegate)
+        {
+            await MenuClicked.InvokeAsync(action);
+        }
+    }
+
+
+    private bool IsFirstQuestion =>
+       AdminStateService.CurrentSession != null &&
+       AdminStateService.CurrentSession.CurrentQuestionIndex == 0;
+
+    private bool IsLastQuestion =>
+        AdminStateService.CurrentSession != null &&
+        AdminStateService.CurrentSession.CurrentQuestionIndex >= AdminStateService.CurrentSession.Questions.Count - 1;
+
+    
+    public void Dispose()
+    {
+        AdminStateService.OnChange -= StateHasChanged;
+    }
+
+
+
+    
+
+}
